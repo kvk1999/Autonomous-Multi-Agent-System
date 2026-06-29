@@ -1,0 +1,232 @@
+/* styles.css */
+
+/* Hide Streamlit chrome */
+header[data-testid="stHeader"], #MainMenu, footer, [data-testid="stToolbar"],
+[data-testid="stDecoration"], [data-testid="stStatusWidget"], .stDeployButton,
+div[data-testid="stSidebarCollapsedControl"] {
+    display: none !important;
+}
+
+/* Base Styles */
+html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], .main, .block-container, section[data-testid="stMain"] {
+    background-color: var(--bg) !important;
+    color: var(--text) !important;
+    font-family: 'DM Sans', -apple-system, sans-serif !important;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+button, input, textarea, select, option, label, th, td, p, span, div {
+    color: var(--text) !important;
+}
+
+code, pre, .stCode, .stCode * {
+    color: var(--text) !important;
+    background-color: var(--card) !important;
+}
+
+pre, code, .stCode, .stMarkdown pre, .stMarkdown code {
+    background-color: var(--card) !important;
+    border: 1px solid var(--border) !important;
+}
+
+.stButton button,
+.stButton button span,
+.stButton button p,
+.stButton button div,
+.stButton button *,
+.stRadio button,
+.stCheckbox label,
+.stSelectbox,
+.stText,
+.stMarkdown,
+.stNumberInput {
+    color: var(--text) !important;
+}
+
+.stButton button {
+    background-color: var(--card) !important;
+    border: 1px solid var(--border) !important;
+    color: var(--text) !important;
+}
+
+.stButton button *,
+button.st-emotion-cache-5qfegl,
+button.st-emotion-cache-5qfegl * {
+    color: var(--text) !important;
+}
+
+.block-container {
+    padding: 1.5rem 2rem 2.5rem !important;
+    max-width: 1380px !important;
+}
+
+/* Tabs Styling */
+button[data-baseweb="tab"] {
+    background: transparent !important;
+    color: var(--text-muted) !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    padding: 0.55rem 1.1rem !important;
+    border: 1px solid transparent !important;
+    border-radius: 7px !important;
+    transition: all 0.2s ease !important;
+}
+button[data-baseweb="tab"]:hover {
+    color: var(--text) !important;
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+    color: var(--text) !important;
+    background: var(--card) !important;
+    border-color: var(--border) !important;
+}
+[data-baseweb="tab-highlight"], [data-baseweb="tab-border"] {
+    display: none !important;
+}
+[data-baseweb="tab-list"] {
+    gap: 6px !important;
+    background: var(--bg-subtle) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+    padding: 4px !important;
+}
+
+/* KPI Cards */
+.metric-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.1rem 1.3rem;
+    box-shadow: var(--shadow);
+    transition: all 0.2s ease;
+}
+.metric-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+}
+.metric-label {
+    font-size: 0.76rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+.metric-value {
+    font-size: 1.7rem;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.03em;
+    margin-top: 0.2rem;
+}
+.metric-delta {
+    font-size: 0.72rem;
+    font-weight: 500;
+    margin-top: 0.4rem;
+    padding: 2px 8px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+.delta-up { color: var(--green); background: var(--green-muted); }
+.delta-down { color: var(--red); background: var(--red-muted); }
+.delta-warn { color: var(--amber); background: var(--amber-muted); }
+
+/* Chart Wrapper */
+.chart-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.2rem;
+    box-shadow: var(--shadow);
+    margin-bottom: 1.25rem;
+}
+.chart-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+}
+.chart-subtitle {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+}
+
+/* Data Tables */
+.table-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    box-shadow: var(--shadow);
+    overflow-x: auto;
+}
+.data-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.8rem;
+}
+.data-table th {
+    text-align: left;
+    padding: 0.7rem 0.8rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border);
+    background-color: var(--bg-subtle);
+}
+.data-table td {
+    padding: 0.65rem 0.8rem;
+    color: var(--text);
+    border-bottom: 1px solid var(--border-subtle);
+}
+.data-table tr:last-child td {
+    border-bottom: none;
+}
+.data-table tr:hover td {
+    background-color: var(--card-hover);
+}
+
+/* Status Badges */
+.badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 500;
+}
+.badge-green { color: var(--green); background: var(--green-muted); }
+.badge-red { color: var(--red); background: var(--red-muted); }
+.badge-amber { color: var(--amber); background: var(--amber-muted); }
+.badge-blue { color: var(--accent); background: rgba(37,99,235,0.1); }
+
+/* Brand and Custom Controls */
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 0.5rem;
+}
+.brand-icon {
+    font-size: 1.5rem;
+    color: var(--accent);
+}
+.brand-name {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+}
+
+[data-testid="stHorizontalBlock"] { gap: 1.25rem !important; }
+[data-testid="stVerticalBlock"] > div:has(> [data-testid="stHorizontalBlock"]) {
+    margin-bottom: 0.5rem !important;
+}
+
+/* Sidebar Custom styling (if sidebars are ever toggled or used) */
+[data-testid="stSidebar"] {
+    background-color: var(--bg-subtle) !important;
+    border-right: 1px solid var(--border) !important;
+}
