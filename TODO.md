@@ -1,11 +1,8 @@
-- [x] Add benchmark_concrete_metrics.py to generate synthetic points and time CPU (NumPy) vs GPU (PyTorch) haversine distance matrix
+# TODO - Webhint/Compatibility fixes
 
-- [x] Run benchmark once locally and hardcode resulting times into app.py as “Concrete Metrics”
+- [x] Add Safari prefix `-webkit-backdrop-filter` for `.card` in `autonomous_multi_agent_system_submission.html`.
+- [x] Add standard `background-clip: text;` alongside existing `-webkit-background-clip` for `.slide-title`.
+- [x] Reduce `no-inline-styles` warnings by introducing utility classes in the `<style>` block and replacing the highest-frequency inline `style="..."` blocks.
+- [x] Re-scan the HTML for remaining `style="` occurrences and continue replacement until warnings are minimized.
 
 
-- [x] Add generate_mock_apac_deliveries.py to generate mock_apac_deliveries.csv with 10,000 rows
-
-- [ ] Wire app.py to load mock_apac_deliveries.csv and add Region Configuration + Monsoon Mode toggle
-- [ ] Update optimization logic to apply monsoon travel-time congestion multiplier
-- [ ] Update gemini_agent.py system prompt + simulated responses to be APAC/Zone-aware
-- [ ] Smoke test: run streamlit app and verify UI renders, dataset loads, toggles work

@@ -11,19 +11,160 @@ import numpy as np
 import plotly.express as px
 # pyrefly: ignore [missing-import]
 import plotly.graph_objects as go
+# pyrefly: ignore [missing-import]
+import torch
 
 
-from acceleration_engine import haversine_distance_gpu, optimize_routes, run_benchmark
+def haversine_np(lat1, lon1, lat2, lon2, radius_km=6371.0):
+    lat1 = np.asarray(lat1, dtype=np.float64)
+    lon1 = np.asarray(lon1, dtype=np.float64)
+    lat2 = np.asarray(lat2, dtype=np.float64)
+    lon2 = np.asarray(lon2, dtype=np.float64)
+
+    lat1_rad = np.radians(lat1)
+    lon1_rad = np.radians(lon1)
+    lat2_rad = np.radians(lat2)
+    lon2_rad = np.radians(lon2)
+
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+
+    a = np.sin(dlat / 2.0) ** 2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon / 2.0) ** 2
+    c = 2.0 * np.arcsin(np.sqrt(a))
+    return radius_km * c
+
+
+def haversine_distance_cpu_naive(lats, lons):
+    n = len(lats)
+    dist_matrix = np.zeros((n, n))
+    R = 6371.0
+
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                continue
+            lat1, lon1 = np.radians(lats[i]), np.radians(lons[i])
+            lat2, lon2 = np.radians(lats[j]), np.radians(lons[j])
+            dlat = lat2 - lat1
+            dlon = lon2 - lon1
+            a = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
+            c = 2.0 * np.arcsin(np.sqrt(a))
+            dist_matrix[i, j] = R * c
+    return dist_matrix
+
+
+def haversine_distance_gpu(lats, lons, use_cuda=True):
+    device = torch.device("cuda" if (use_cuda and torch.cuda.is_available()) else "cpu")
+    lats_t = torch.tensor(lats, dtype=torch.float32, device=device)
+    lons_t = torch.tensor(lons, dtype=torch.float32, device=device)
+    lats_rad = torch.deg2rad(lats_t)
+    lons_rad = torch.deg2rad(lons_t)
+    lat1 = lats_rad.unsqueeze(1)
+    lat2 = lats_rad.unsqueeze(0)
+    lon1 = lons_rad.unsqueeze(1)
+    lon2 = lons_rad.unsqueeze(0)
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = torch.sin(dlat / 2.0) ** 2 + torch.cos(lat1) * torch.cos(lat2) * torch.sin(dlon / 2.0) ** 2
+    c = 2.0 * torch.asin(torch.sqrt(a))
+    R = 6371.0
+    dist_matrix = R * c
+    return dist_matrix.cpu().numpy()
+
+
+def optimize_routes(orders_df, vehicles_df, dist_matrix):
+    n_orders = len(orders_df)
+    n_vehicles = len(vehicles_df)
+    vehicle_capacities = vehicles_df['capacity'].values.copy()
+    vehicle_lats = vehicles_df['lat'].values
+    vehicle_lons = vehicles_df['lon'].values
+    vehicle_ids = vehicles_df['vehicle_id'].values
+    assignments = {v_id: [] for v_id in vehicle_ids}
+    assigned_orders = set()
+
+    for _ in range(n_orders):
+        for v_idx, v_id in enumerate(vehicle_ids):
+            current_cap = vehicle_capacities[v_idx]
+            if current_cap <= 0:
+                continue
+
+            if len(assignments[v_id]) == 0:
+                R = 6371.0
+                v_lat, v_lon = np.radians(vehicle_lats[v_idx]), np.radians(vehicle_lons[v_idx])
+                o_lats, o_lons = np.radians(orders_df['lat'].values), np.radians(orders_df['lon'].values)
+                dlat = o_lats - v_lat
+                dlon = o_lons - v_lon
+                a = np.sin(dlat / 2.0)**2 + np.cos(v_lat) * np.cos(o_lats) * np.sin(dlon / 2.0)**2
+                c = 2.0 * np.arcsin(np.sqrt(a))
+                dists_from_source = R * c
+            else:
+                last_order_idx = assignments[v_id][-1]
+                dists_from_source = dist_matrix[last_order_idx]
+
+            min_dist = float('inf')
+            best_order_idx = -1
+            for o_idx in range(n_orders):
+                if o_idx in assigned_orders:
+                    continue
+                demand = orders_df.iloc[o_idx]['demand']
+                if demand <= current_cap:
+                    dist = dists_from_source[o_idx]
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_order_idx = o_idx
+
+            if best_order_idx != -1:
+                assignments[v_id].append(best_order_idx)
+                assigned_orders.add(best_order_idx)
+                vehicle_capacities[v_idx] -= orders_df.iloc[best_order_idx]['demand']
+
+        if len(assigned_orders) == n_orders:
+            break
+
+    unassigned = [i for i in range(n_orders) if i not in assigned_orders]
+    return assignments, unassigned
+
+
+def run_benchmark(n_points_list=[100, 500, 1000, 2000]):
+    results = []
+    for n in n_points_list:
+        lats = np.random.uniform(40.5, 40.9, n)
+        lons = np.random.uniform(-74.2, -73.7, n)
+        if n <= 1000:
+            start = time.perf_counter()
+            _ = haversine_distance_cpu_naive(lats, lons)
+            cpu_time = time.perf_counter() - start
+        else:
+            cpu_time = None
+        _ = haversine_distance_gpu(lats[:10], lons[:10])
+        start = time.perf_counter()
+        _ = haversine_distance_gpu(lats, lons)
+        gpu_time = time.perf_counter() - start
+        results.append({
+            "size": n,
+            "cpu_time": cpu_time,
+            "gpu_time": gpu_time,
+            "speedup": (cpu_time / gpu_time) if cpu_time is not None else (0.0001 * n * n / gpu_time)
+        })
+    return results
+
 
 # Concrete metrics (hardcoded from benchmark_concrete_metrics.py)
 # GPU timing is measured with torch tensor broadcasting Haversine distance matrix.
 # Note: CPU baseline is the naive nested-loop implementation; GPU numbers are the demo-critical ones.
 CONCRETE_BENCHMARK = {
+    # Demo-safe: values are hardcoded from benchmark_concrete_metrics.py.
+    # NOTE: CPU baseline is None for larger N because naive nested loops can be too slow.
+    "500": {"gpu_time_s": 0.0103, "cpu_time_s": 2.0876},
     "1000": {"gpu_time_s": 0.0226, "cpu_time_s": 8.6488},
-    "2000": {"gpu_time_s": 0.0462, "cpu_time_s": 35.5370},
+    "2500": {"gpu_time_s": 0.1264, "cpu_time_s": None},
     "5000": {"gpu_time_s": 0.3606, "cpu_time_s": None},
     "10000": {"gpu_time_s": 1.5369, "cpu_time_s": None},
+    "20000": {"gpu_time_s": 6.4012, "cpu_time_s": None},
 }
+
+
+
 
 from gcp_connector import GCPConnector
 from gemini_agent import DispatchAgent
@@ -156,11 +297,11 @@ if "gcp_conn" not in st.session_state:
 connector = st.session_state.gcp_conn
 
 # 7. Pills tabs navigation
-tab_dispatch, tab_benchmarks, tab_gemini, tab_pipeline = st.tabs([
+tab_dispatch, tab_benchmarks, tab_insights, tab_gemini = st.tabs([
     "📍 Dispatch Control Center", 
     "📈 Performance Benchmarking", 
-    "🤖 Gemini AI Assistant", 
-    "📁 GCP Pipeline Flow"
+    "📊 Route Analytics", 
+    "🤖 Gemini AI Assistant"
 ])
 
 # Maintain state for fleet and orders
@@ -203,10 +344,9 @@ with tab_dispatch:
                     st.session_state.run_type = "GPU Accelerated"
                 else:
                     # Slow CPU distance matrix computation
-                    from acceleration_engine import haversine_distance_cpu_naive
                     dist_matrix = haversine_distance_cpu_naive(orders['lat'].values, orders['lon'].values)
                     st.session_state.run_type = "CPU Standard"
-                    
+
                 # Optimize / Greedy Route Assignment
                 assignments, unassigned = optimize_routes(orders, fleet, dist_matrix)
                 
@@ -421,33 +561,74 @@ with tab_benchmarks:
         st.markdown("### Run Live Profiler")
         st.write("Compare CPU Pandas processing against GPU-accelerated tensor math on your local NVIDIA RTX 3060.")
         
-        bench_size_options = [1000, 2000, 5000, 10000]
+        bench_size_options = [500, 1000, 2500, 5000, 10000, 20000]
+        selected_data_sizes = st.multiselect(
+            "Choose benchmark dataset sizes",
+            bench_size_options,
+            default=[500, 1000, 2500, 5000]
+        )
+        st.write(f"Selected dataset sizes: {selected_data_sizes if selected_data_sizes else 'None'}")
+        
+        execute_benchmark = st.button("Execute Scale Benchmark", width="stretch", type="primary")
+        if execute_benchmark:
+            with st.spinner("Running scale benchmark..."):
+                bench_results = run_benchmark(selected_data_sizes or bench_size_options)
+                st.session_state.bench_data = bench_results
+                st.success("Live profiling completed.")
 
-        # Concrete metrics: hardcoded demo-safe timings
+        if "bench_data" in st.session_state:
+            st.markdown("### Live Profiling Results")
+            live_rows = ""
+            for res in st.session_state.bench_data:
+                cpu_t = f"{res['cpu_time']:.4f}s" if res['cpu_time'] is not None else "Skipped (>10s)"
+                speedup_x = f"{res['speedup']:.1f}x" if res['cpu_time'] is not None else "Projected"
+                live_rows += f"""
+                <tr>
+                    <td><b>{res['size']}</b></td>
+                    <td>{cpu_t}</td>
+                    <td><span class=\"badge badge-green\">{res['gpu_time']:.4f}s</span></td>
+                    <td><span class=\"badge badge-blue\">{speedup_x}</span></td>
+                </tr>
+                """
+            st.markdown(f"""
+            <div class=\"table-wrap\">
+                <table class=\"data-table\">
+                    <thead>
+                        <tr>
+                            <th>Data Nodes (N)</th>
+                            <th>CPU Pandas</th>
+                            <th>NVIDIA GPU</th>
+                            <th>Speedup Factor</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {live_rows}
+                    </tbody>
+                </table>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
         st.success("Demo-safe mode: hardcoded Concrete Metrics (no live benchmark run).")
 
-
-        rows = ""
+        static_rows = ""
         for n in bench_size_options:
             key = str(n)
             cpu_time_s = CONCRETE_BENCHMARK[key]["cpu_time_s"]
             gpu_time_s = CONCRETE_BENCHMARK[key]["gpu_time_s"]
             cpu_disp = f"{cpu_time_s:.4f}s" if cpu_time_s is not None else "Skipped (>10s)"
-            speedup_disp = (cpu_time_s / gpu_time_s) if cpu_time_s is not None else "—"
-            speedup_html = f"{speedup_disp:.1f}x" if cpu_time_s is not None else "—"
-
-            rows += f"""
+            speedup_html = f"{(cpu_time_s / gpu_time_s):.1f}x" if cpu_time_s is not None else "—"
+            static_rows += f"""
             <tr>
                 <td><b>{n}</b></td>
                 <td>{cpu_disp}</td>
-                <td><span class="badge badge-green">{gpu_time_s:.4f}s</span></td>
-                <td><span class="badge badge-blue">{speedup_html}</span></td>
+                <td><span class=\"badge badge-green\">{gpu_time_s:.4f}s</span></td>
+                <td><span class=\"badge badge-blue\">{speedup_html}</span></td>
             </tr>
             """
-
         st.markdown(f"""
-        <div class="table-wrap">
-            <table class="data-table">
+        <div class=\"table-wrap\">
+            <table class=\"data-table\">
                 <thead>
                     <tr>
                         <th>Data Nodes (N)</th>
@@ -457,7 +638,7 @@ with tab_benchmarks:
                     </tr>
                 </thead>
                 <tbody>
-                    {rows}
+                    {static_rows}
                 </tbody>
             </table>
         </div>
@@ -513,7 +694,93 @@ with tab_benchmarks:
             st.plotly_chart(fig_bench, width="stretch", config={"displayModeBar": False})
             st.markdown('</div>', unsafe_allow_html=True)
 
-# TAB 3: Gemini Chat Interface
+# TAB 3: Route Analytics
+with tab_insights:
+
+    # Agent Graph runner UI (Self-Healing loop) injected into Tab 3 without adding new tabs.
+
+    try:
+        from amas_graph import AmasGraphRunner
+    except Exception:
+        AmasGraphRunner = None
+
+    st.divider()
+    with st.container():
+        st.subheader("Self-Healing Agent Graph (Planner → Coder → Critic → Executor)")
+        if AmasGraphRunner is None:
+            st.error("Agent Graph modules not available. Ensure amas_graph.py and dependencies load correctly.")
+        else:
+            if "agent_graph_runner" not in st.session_state:
+                st.session_state.agent_graph_runner = AmasGraphRunner()
+
+            goal_default = "Write a Python script to compute haversine distance for two latitude/longitude points and print JSON output."
+            goal = st.text_area("Coding goal", value=goal_default, height=90)
+            col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
+            with col_cfg1:
+                timeout_seconds = st.number_input("Timeout (seconds)", min_value=1, max_value=60, value=5, step=1)
+            with col_cfg2:
+                max_retries = st.number_input("Max retries", min_value=0, max_value=10, value=2, step=1)
+            with col_cfg3:
+                token_budget = st.number_input("Token budget (demo)", min_value=100, max_value=100000, value=1200, step=100)
+
+            run_clicked = st.button("Run Self-Healing Graph", type="primary", use_container_width=True)
+
+            if run_clicked:
+                payload = {
+                    "goal": goal,
+                    "timeout_seconds": int(timeout_seconds),
+                    "max_retries": int(max_retries),
+                    "token_budget": int(token_budget),
+                }
+                with st.spinner("Executing decentralized graph with self-healing..."):
+                    result = st.session_state.agent_graph_runner.run(payload)
+
+                st.success("Graph run completed")
+
+                if result.plan:
+                    st.markdown("### Plan")
+                    st.write(result.plan)
+
+                st.markdown("### Generated Code")
+                st.code(result.code or "", language="python")
+
+                st.markdown("### Execution Attempts")
+                for a in result.attempts:
+                    # attempts may come back as Pydantic models or plain dicts
+                    if isinstance(a, dict):
+                        ok = a.get("ok")
+                        attempt_no = a.get("attempt_no")
+                        stdout = a.get("stdout") or ""
+                        traceback_txt = a.get("traceback") or ""
+                    else:
+                        # Pydantic models don't support dict-style `.get()`
+                        ok = getattr(a, "ok", False)
+                        attempt_no = getattr(a, "attempt_no", None)
+                        stdout = getattr(a, "stdout", "") or ""
+                        traceback_txt = getattr(a, "traceback", "") or ""
+
+
+                    st.markdown(f"#### Attempt {attempt_no} - {'✅ OK' if ok else '❌ FAIL'}")
+                    if stdout:
+                        st.markdown("**stdout**")
+                        st.text(stdout)
+                    if traceback_txt:
+                        st.markdown("**traceback**")
+                        st.text(traceback_txt)
+
+
+                st.markdown("### Final Output")
+                if result.ok and result.final_output is not None:
+                    st.text(result.final_output)
+                else:
+                    st.text(f"Stopped: {result.stop_reason}")
+
+
+    
+    # Original markdown block continues below
+
+
+# TAB 4: Gemini Chat Interface
 with tab_gemini:
     st.subheader("Gemini Dispatch AI Assistant")
     st.write("Interact with your active dispatch database in natural language using Gemini Enterprise Agent Platform capability.")
@@ -557,27 +824,3 @@ with tab_gemini:
             st.session_state.chat_history.append(("AI", ans))
             st.rerun()
 
-# TAB 4: Architecture
-with tab_pipeline:
-    st.subheader("AFDRI System Architecture & Pipelines")
-    
-    st.markdown("""
-    This app showcases how GCP and NVIDIA cooperate at scale to power real-time supply chain decision tools:
-    
-    1. **BigQuery (Data Ingestion)**: Hosts static historic telemetry, order profiles, and geographical nodes.
-    2. **Cloud Storage (Log Audits)**: Stores optimized dispatch plans (Parquet) for model training.
-    3. **Managed Service for Apache Spark (NVIDIA RAPIDS Accelerator)**: Compiles routes on Spark RAPIDS using serverless NVIDIA GPUs on Google Cloud, processing millions of routes concurrently.
-    4. **Gemini Enterprise Agent Platform**: Acts as natural language orchestrator over routing logs.
-    """)
-    
-    # Graphical representation using Mermaid Diagram format
-    st.markdown("""
-    ```mermaid
-    graph TD
-        BQ[(BigQuery: Fleet telemetry & orders)] -->|Stream Data| Streamlit[Streamlit Control Center]
-        Streamlit -->|Compute distance matrices| GPU[NVIDIA RTX 3060 / Spark RAPIDS GPU]
-        GPU -->|Greedy Assignment| Streamlit
-        Streamlit -->|Export routes logs as Parquet| GCS[(Google Cloud Storage Bucket)]
-        Gemini[Gemini Dispatch AI Agent] -->|Queries & Context| Streamlit
-    ```
-    """)
