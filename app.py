@@ -405,7 +405,8 @@ with tab_dispatch:
 
 # TAB 2: Performance Benchmarks
 with tab_benchmarks:
-    st.subheader("GCP/NVIDIA GPU Acceleration Profiler")
+    st.subheader("Concrete Metrics (Pre-Benchmarked)")
+
     st.markdown(r"""
     In last-mile dispatch routing, computing the pairwise distance matrix scales at \(O(N^2)\). For 10,000 package delivery nodes, 
     the system must compute **100,000,000 (100 Million)** calculations. On standard Python/Pandas, this takes **minutes**, freezing real-time 
@@ -420,50 +421,48 @@ with tab_benchmarks:
         st.markdown("### Run Live Profiler")
         st.write("Compare CPU Pandas processing against GPU-accelerated tensor math on your local NVIDIA RTX 3060.")
         
-        bench_size_options = [100, 300, 500, 1000, 2000, 5000]
-        select_all_checkbox = st.checkbox("Select all dataset sizes")
-        selected_bench_options = st.multiselect(
-            "Dataset sizes (nodes)",
-            bench_size_options,
-            default=bench_size_options if select_all_checkbox else [100, 300, 500, 1000],
-        )
-        bench_nodes = bench_size_options if select_all_checkbox else selected_bench_options
-        
-        if st.button("Execute Scale Benchmark", width="stretch", type="primary"):
-            with st.spinner("Profiling calculations..."):
-                bench_results = run_benchmark(bench_nodes)
-                st.session_state.bench_data = bench_results
-        if "bench_data" in st.session_state:
-            # Display results summary table
-            rows = ""
-            for res in st.session_state.bench_data:
-                cpu_t = f"{res['cpu_time']:.4f}s" if res['cpu_time'] is not None else "Skipped (>10s)"
-                speedup_x = f"{res['speedup']:.1f}x"
-                rows += f"""
-                <tr>
-                    <td><b>{res['size']}</b></td>
-                    <td>{cpu_t}</td>
-                    <td><span class="badge badge-green">{res['gpu_time']:.4f}s</span></td>
-                    <td><span class="badge badge-blue">{speedup_x}</span></td>
-                </tr>
-                """
-            st.markdown(f"""
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Data Nodes (N)</th>
-                            <th>CPU Pandas</th>
-                            <th>NVIDIA GPU</th>
-                            <th>Speedup Factor</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {rows}
-                    </tbody>
-                </table>
-            </div>
-            """, unsafe_allow_html=True)
+        bench_size_options = [1000, 2000, 5000, 10000]
+
+        # Concrete metrics: hardcoded demo-safe timings
+        st.success("Demo-safe mode: hardcoded Concrete Metrics (no live benchmark run).")
+
+
+        rows = ""
+        for n in bench_size_options:
+            key = str(n)
+            cpu_time_s = CONCRETE_BENCHMARK[key]["cpu_time_s"]
+            gpu_time_s = CONCRETE_BENCHMARK[key]["gpu_time_s"]
+            cpu_disp = f"{cpu_time_s:.4f}s" if cpu_time_s is not None else "Skipped (>10s)"
+            speedup_disp = (cpu_time_s / gpu_time_s) if cpu_time_s is not None else "—"
+            speedup_html = f"{speedup_disp:.1f}x" if cpu_time_s is not None else "—"
+
+            rows += f"""
+            <tr>
+                <td><b>{n}</b></td>
+                <td>{cpu_disp}</td>
+                <td><span class="badge badge-green">{gpu_time_s:.4f}s</span></td>
+                <td><span class="badge badge-blue">{speedup_html}</span></td>
+            </tr>
+            """
+
+        st.markdown(f"""
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Data Nodes (N)</th>
+                        <th>CPU Pandas</th>
+                        <th>NVIDIA GPU</th>
+                        <th>Speedup Factor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows}
+                </tbody>
+            </table>
+        </div>
+        """, unsafe_allow_html=True)
+
             
     with col_bench_chart:
         if "bench_data" in st.session_state:
