@@ -4,3 +4,5 @@ pandas
 numpy
 torch
 google-genai
+Flask
+gunicorn
