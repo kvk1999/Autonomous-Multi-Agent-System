@@ -13,6 +13,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 # pyrefly: ignore [missing-import]
 import torch
+import distance_calculator
 
 # Mitigation for WinError 10054 noise when a Streamlit client disconnects mid-callback.
 # Streamlit uses asyncio transports internally on Windows; browser/tab closes can trigger
@@ -195,6 +196,23 @@ def toggle_theme():
 
 IS_DARK = st.session_state.theme == "dark"
 
+# Ensure Streamlit DOM can react to dark mode selectors (styles.css expects body.dark-mode)
+st.markdown(
+    f"""
+    <script>
+      const apply = () => {{
+        try {{
+          const body = document.body;
+          if (!body) return;
+          body.classList.toggle('dark-mode', {str(IS_DARK).lower()});
+        }} catch (e) {{}}
+      }};
+      apply();
+    </script>
+    """,
+    unsafe_allow_html=True,
+)
+
 # 3. CSS Design System Variables (dynamic light/dark values)
 bg_val = "#000000" if IS_DARK else "#ffffff"
 bg_subtle_val = "#050505" if IS_DARK else "#f9fafb"
@@ -336,48 +354,62 @@ with tab_dispatch:
         # Optimization Mode
         mode = st.radio("Optimization Mode", ["NVIDIA GPU (PyTorch CUDA)", "Standard CPU (Pandas Loop)"])
         
-        if st.button("Optimize Route Dispatch", width="stretch", type="primary"):
-            with st.spinner("Executing Distance Matrix & Greedy Assignment..."):
-                orders = st.session_state.orders_df
-                fleet = st.session_state.fleet_df
-                
-                # Check execution times
-                start_t = time.perf_counter()
-                
-                # Pairwise Distance Matrix
-                if "GPU" in mode:
-                    dist_matrix = haversine_distance_gpu(orders['lat'].values, orders['lon'].values, use_cuda=True)
-                    st.session_state.run_type = "GPU Accelerated"
-                else:
-                    # Slow CPU distance matrix computation
-                    dist_matrix = haversine_distance_cpu_naive(orders['lat'].values, orders['lon'].values)
-                    st.session_state.run_type = "CPU Standard"
+        if st.button("Optimize Route Dispatch", width="stretch"):
+            try:
+                with st.spinner("Executing Distance Matrix & Greedy Assignment..."):
+                    orders = st.session_state.orders_df
+                    fleet = st.session_state.fleet_df
 
-                # Optimize / Greedy Route Assignment
-                assignments, unassigned = optimize_routes(orders, fleet, dist_matrix)
-                
-                calc_time = time.perf_counter() - start_t
-                st.session_state.assignments = assignments
-                st.session_state.unassigned = unassigned
-                st.session_state.calc_time = calc_time
-                
-                # Simulation Export to GCS
-                route_records = []
-                for v_id, o_idxs in assignments.items():
-                    for step_idx, o_idx in enumerate(o_idxs):
-                        ord_row = orders.iloc[o_idx]
-                        route_records.append({
-                            "vehicle_id": v_id,
-                            "step": step_idx,
-                            "order_id": ord_row["order_id"],
-                            "lat": ord_row["lat"],
-                            "lon": ord_row["lon"],
-                            "demand": ord_row["demand"],
-                            "priority": ord_row["priority"]
-                        })
-                if route_records:
-                    export_uri = connector.export_routes_to_gcs(pd.DataFrame(route_records))
-                    st.toast(f"Route logs written: {export_uri}", icon="📁")
+                    # Check execution times
+                    start_t = time.perf_counter()
+
+                    # Pairwise Distance Matrix
+                    if "GPU" in mode:
+                        dist_matrix = haversine_distance_gpu(
+                            orders['lat'].values,
+                            orders['lon'].values,
+                            use_cuda=True,
+                        )
+                        st.session_state.run_type = "GPU Accelerated"
+                    else:
+                        # Slow CPU distance matrix computation
+                        dist_matrix = haversine_distance_cpu_naive(orders['lat'].values, orders['lon'].values)
+                        st.session_state.run_type = "CPU Standard"
+
+                    # Optimize / Greedy Route Assignment
+                    assignments, unassigned = optimize_routes(orders, fleet, dist_matrix)
+
+                    calc_time = time.perf_counter() - start_t
+                    st.session_state.assignments = assignments
+                    st.session_state.unassigned = unassigned
+                    st.session_state.calc_time = calc_time
+
+                    # Simulation Export to GCS
+                    route_records = []
+                    for v_id, o_idxs in assignments.items():
+                        for step_idx, o_idx in enumerate(o_idxs):
+                            ord_row = orders.iloc[o_idx]
+                            route_records.append({
+                                "vehicle_id": v_id,
+                                "step": step_idx,
+                                "order_id": ord_row["order_id"],
+                                "lat": ord_row["lat"],
+                                "lon": ord_row["lon"],
+                                "demand": ord_row["demand"],
+                                "priority": ord_row["priority"],
+                            })
+                    if route_records:
+                        export_uri = connector.export_routes_to_gcs(pd.DataFrame(route_records))
+                        st.toast(f"Route logs written: {export_uri}", icon="📁")
+            except ConnectionResetError:
+                st.warning("Client disconnected during optimization (WinError 10054). Aborting safely.")
+                st.stop()
+            except Exception as e:
+                st.error(f"Optimization failed: {e}")
+                st.session_state.assignments = {}
+                st.session_state.unassigned = []
+                st.session_state.calc_time = 0.0
+
 
         # KPI Metrics
         kpi_1, kpi_2 = st.columns(2)
@@ -475,7 +507,7 @@ with tab_dispatch:
             lat=m_df[m_df["color"] == "Vehicles (Hubs)"]["lat"],
             lon=m_df[m_df["color"] == "Vehicles (Hubs)"]["lon"],
             mode="markers",
-            marker=dict(size=14, color="#ef4444", symbol="bus"),
+            marker=dict(size=14, color="#ef4444", symbol="circle"),
             name="Driver Starts",
             text=m_df[m_df["color"] == "Vehicles (Hubs)"]["label"],
             hoverinfo="text",
@@ -702,141 +734,94 @@ with tab_benchmarks:
 
 # TAB 3: Route Analytics
 with tab_insights:
+    st.subheader("Route Analytics")
 
-    # Agent Graph runner UI (Self-Healing loop) injected into Tab 3 without adding new tabs.
+    st.markdown(
+        """
+        **Distance Formula**
 
-    try:
-        from amas_graph import AmasGraphRunner
-    except Exception:
-        AmasGraphRunner = None
+        $$D = f(lat_1, lon_1, lat_2, lon_2)$$
+        """
+    )
 
-    st.divider()
-    with st.container():
-        st.subheader("Self-Healing Agent Graph (Planner → Coder → Critic → Executor)")
-        if AmasGraphRunner is None:
-            st.error("Agent Graph modules not available. Ensure amas_graph.py and dependencies load correctly.")
-        else:
-            if "agent_graph_runner" not in st.session_state:
-                st.session_state.agent_graph_runner = AmasGraphRunner()
+    st.write("Enter coordinates to compute great-circle distance (km).")
 
-            goal_default = "Write a Python script to compute haversine distance for two latitude/longitude points and print JSON output."
-            goal = st.text_area("Coding goal", value=goal_default, height=90)
-            col_cfg1, col_cfg2, col_cfg3 = st.columns(3)
-            with col_cfg1:
-                timeout_seconds = st.number_input("Timeout (seconds)", min_value=1, max_value=60, value=5, step=1)
-            with col_cfg2:
-                max_retries = st.number_input("Max retries", min_value=0, max_value=10, value=2, step=1)
-            with col_cfg3:
-                token_budget = st.number_input("Token budget (demo)", min_value=100, max_value=100000, value=1200, step=100)
+    c1, c2 = st.columns(2)
+    with c1:
+        lat1 = st.text_input("Latitude 1", value="40.73")
+        lon1 = st.text_input("Longitude 1", value="-73.97")
+    with c2:
+        lat2 = st.text_input("Latitude 2", value="40.78")
+        lon2 = st.text_input("Longitude 2", value="-73.98")
 
-            run_clicked = st.button("Run Self-Healing Graph", type="primary", use_container_width=True)
+    unit = st.selectbox(
+        "Angle unit (UI parity with React mock)",
+        [
+            "(rad) radian",
+            "(centiradian) centiradian",
+            "(°) degree angle",
+            "(grade) grade",
+            "(') minute angle",
+            "(rev) revolution",
+            '(" ) second angle',
+        ],
+        index=2,
+    )
 
-            if run_clicked:
-                payload = {
-                    "goal": goal,
-                    "timeout_seconds": int(timeout_seconds),
-                    "max_retries": int(max_retries),
-                    "token_budget": int(token_budget),
-                }
-
-                with st.spinner("Executing decentralized graph with self-healing..."):
-                    try:
-                        result = st.session_state.agent_graph_runner.run(payload)
-                    except ConnectionResetError:
-                        st.warning("Client disconnected during graph execution (WinError 10054). Aborting safely.")
-                        st.stop()
-
-                st.success("Graph run completed")
-
-                if result.plan:
-                    st.markdown("### Plan")
-                    st.write(result.plan)
-
-                st.markdown("### Generated Code")
-                st.code(result.code or "", language="python")
-
-                st.markdown("### Execution Attempts")
-                for a in result.attempts:
-                    # attempts may come back as Pydantic models or plain dicts
-                    if isinstance(a, dict):
-                        ok = a.get("ok")
-                        attempt_no = a.get("attempt_no")
-                        stdout = a.get("stdout") or ""
-                        traceback_txt = a.get("traceback") or ""
-                    else:
-                        # Pydantic models don't support dict-style `.get()`
-                        ok = getattr(a, "ok", False)
-                        attempt_no = getattr(a, "attempt_no", None)
-                        stdout = getattr(a, "stdout", "") or ""
-                        traceback_txt = getattr(a, "traceback", "") or ""
-
-
-                    st.markdown(f"#### Attempt {attempt_no} - {'✅ OK' if ok else '❌ FAIL'}")
-                    if stdout:
-                        st.markdown("**stdout**")
-                        st.text(stdout)
-                    if traceback_txt:
-                        st.markdown("**traceback**")
-                        st.text(traceback_txt)
-
-
-                st.markdown("### Final Output")
-                if result.ok and result.final_output is not None:
-                    st.text(result.final_output)
-                else:
-                    st.text(f"Stopped: {result.stop_reason}")
-
-
-    
-    # Original markdown block continues below
-
+    if st.button("Calculate Distance", type="primary"):
+        try:
+            lat1_f, lon1_f = float(lat1), float(lon1)
+            lat2_f, lon2_f = float(lat2), float(lon2)
+            # Vectorized haversine is already implemented as haversine_np in this file.
+            d_km = haversine_np(lat1_f, lon1_f, lat2_f, lon2_f)
+            st.success(f"Distance: {float(d_km):.2f} km")
+        except ValueError:
+            st.error("Please enter valid numeric coordinates.")
 
 # TAB 4: Gemini Chat Interface
 with tab_gemini:
     st.subheader("Gemini Dispatch AI Assistant")
     st.write("Interact with your active dispatch database in natural language using Gemini Enterprise Agent Platform capability.")
-    
-    # Optional API key text input
-    st.markdown('<div class="chart-wrap">', unsafe_allow_html=True)
-    api_key_input = st.text_input("Enter Gemini API Key (Optional - Simulated Mode runs automatically if left blank)", type="password")
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Initialize Agent
+
+    api_key_input = st.text_input(
+        "Enter Gemini API Key (Optional - Simulated Mode runs automatically if left blank)",
+        type="password",
+    )
+
     agent = DispatchAgent(api_key=api_key_input if api_key_input else None)
-    
+
     if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
-        
+        st.session_state.chat_history = [
+            ("bot", "Hello! I am your AI Dispatch Assistant. How can I help optimize your routes today?")
+        ]
+
     chat_container = st.container()
-    
-    # Render Chat History
     with chat_container:
         for sender, msg in st.session_state.chat_history:
             if sender == "User":
                 st.markdown(f"🧑 **You**: {msg}")
+            elif sender == "bot":
+                st.markdown(msg)
             else:
                 st.markdown(msg)
-                
-    st.markdown("---")
-    
-    user_query = st.chat_input("Ask about active routes (e.g., 'Analyze delay risks', 'Who is Sarah?')")
+
+    user_query = st.chat_input("Ask about agent status...")
     if user_query:
-        # Save message
         st.session_state.chat_history.append(("User", user_query))
-        
-        # Get AI response
         with st.spinner("Gemini reading database context..."):
             try:
                 ans = agent.query_agent(
-                    user_query, 
-                    st.session_state.fleet_df, 
-                    st.session_state.orders_df, 
-                    st.session_state.assignments
+                    user_query,
+                    st.session_state.fleet_df,
+                    st.session_state.orders_df,
+                    st.session_state.assignments,
                 )
             except ConnectionResetError:
                 st.warning("Client disconnected during Gemini response (WinError 10054). Aborting safely.")
                 st.stop()
+            except Exception as e:
+                st.error(f"Gemini assistant failed: {e}")
+                ans = "🤖 **AFDRI Assistant**: I hit an error while generating a response. Please try again."
 
-            st.session_state.chat_history.append(("AI", ans))
-            st.rerun()
-
+        st.session_state.chat_history.append(("bot", ans))
+        st.rerun()

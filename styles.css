@@ -1,5 +1,111 @@
 /* styles.css */
 
+/* ================================
+   Global Styles for AFDRI
+   (applied to Streamlit app UI)
+   ================================ */
+:root {
+    --bg-color: #ffffff;
+    --text-color: #000000;
+    --nav-border: #e5e7eb;
+}
+
+body.dark-mode {
+    --bg-color: #000000;
+    --text-color: #f8f8f8;
+    --nav-border: #1f2937;
+}
+
+
+
+header, nav {
+    border-bottom: 1px solid var(--nav-border);
+    padding: 20px;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: sans-serif;
+    transition: background-color 0.3s;
+    font-weight: 400;
+}
+
+body {
+    color: var(--text-color) !important;
+}
+
+
+.container {
+    max-width: 1000px;
+    margin: 40px auto;
+}
+
+.grid-input {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+input, select {
+    width: 100%;
+    padding: 12px;
+    margin-top: 8px;
+    background: #f3f4f6;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+}
+
+/* Dark-mode form controls - force against Streamlit/BaseWeb defaults */
+body.dark-mode input,
+body.dark-mode textarea,
+body.dark-mode select {
+    background-color: #050505 !important;
+    border: 1px solid #333 !important;
+    color: #f8f8f8 !important;
+}
+
+/* Streamlit BaseWeb input structure */
+body.dark-mode [data-baseweb="input"] input {
+    background-color: #050505 !important;
+    border: 1px solid #333 !important;
+    color: #f8f8f8 !important;
+}
+
+body.dark-mode [data-baseweb="input"] input::placeholder,
+body.dark-mode input::placeholder,
+body.dark-mode textarea::placeholder {
+    color: #f8f8f8 !important;
+    background-color: #000000 !important; /* requested black placeholder background */
+}
+
+/* Select / combobox controls */
+body.dark-mode select {
+    color: #f8f8f8 !important;
+}
+
+body.dark-mode [role="combobox"],
+body.dark-mode [role="listbox"],
+body.dark-mode [aria-haspopup="listbox"],
+body.dark-mode div[aria-label^="Selected"] {
+    color: #f8f8f8 !important;
+}
+
+body.dark-mode [role="combobox"] input {
+    background-color: #050505 !important;
+    border: 1px solid #333 !important;
+    color: #f8f8f8 !important;
+}
+
+
+button {
+    padding: 12px 24px;
+    border-radius: 8px;
+    cursor: pointer;
+    background: #eee;
+    border: 1px solid #ccc;
+}
+
 /* Hide Streamlit chrome */
 header[data-testid="stHeader"], #MainMenu, footer, [data-testid="stToolbar"],
 [data-testid="stDecoration"], [data-testid="stStatusWidget"], .stDeployButton,
@@ -18,6 +124,28 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], .main, .b
 button, input, textarea, select, option, label, th, td, p, span, div {
     color: var(--text) !important;
 }
+
+/* Make placeholder text black as requested (overrides Streamlit/BaseWeb defaults) */
+input::placeholder,
+textarea::placeholder {
+    color: #6b7280 !important; /* gray-500 */
+    opacity: 1 !important;
+}
+
+/* Dark mode placeholders should be lighter on dark inputs */
+body.dark-mode input::placeholder,
+body.dark-mode textarea::placeholder {
+    color: #9ca3af !important; /* gray-400 */
+}
+
+/* Dark-mode: force placeholder background to black */
+body.dark-mode input::placeholder,
+body.dark-mode textarea::placeholder,
+body.dark-mode [data-baseweb="input"] input::placeholder {
+    background-color: #000000 !important;
+}
+
+
 
 /* Toast Notifications */
 [data-baseweb="toast"], .stToast, .stToastContainer {
@@ -113,6 +241,22 @@ button[data-baseweb="tab"][aria-selected="true"] {
     box-shadow: var(--shadow);
     transition: all 0.2s ease;
 }
+
+/* Deck-like card accent variant (scoped; used optionally by Streamlit markup) */
+.deck-card {
+    background: rgba(15, 22, 42, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+    padding: 22px;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(10px);
+}
+
+.deck-card.deck-accent-orange { border-top: 3px solid #ff7b00; }
+.deck-card.deck-accent-pink { border-top: 3px solid #ff007f; }
+.deck-card.deck-accent-blue { border-top: 3px solid #3b82f6; }
+
+
 .metric-card:hover {
     border-color: var(--accent);
     transform: translateY(-2px);
@@ -244,4 +388,3 @@ button[data-baseweb="tab"][aria-selected="true"] {
     background-color: var(--bg-subtle) !important;
     border-right: 1px solid var(--border) !important;
 }
-
